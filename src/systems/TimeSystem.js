@@ -1,0 +1,1 @@
+export class TimeSystem{constructor(){this.time=.28;this.speed=.0045}update(dt){this.time=(this.time+dt*this.speed)%1}daylight(){return Math.max(.08,Math.sin((this.time-.25)*Math.PI*2)*.5+.5)}}

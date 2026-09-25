@@ -1,0 +1,1 @@
+export class Crosshair{constructor(){this.element=document.getElementById("crosshair")}}

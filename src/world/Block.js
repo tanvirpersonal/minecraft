@@ -1,0 +1,1 @@
+import{BLOCK_REGISTRY}from "../config.js";export function isSolid(id){return!!BLOCK_REGISTRY[id]?.solid}export function isTransparent(id){return!!BLOCK_REGISTRY[id]?.transparent}export function blockName(id){return BLOCK_REGISTRY[id]?.name||"UNKNOWN"}export function isPlaceable(id){return id!==0&&id!==13&&id!==14}

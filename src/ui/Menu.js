@@ -1,0 +1,1 @@
+export class Menu{constructor(){this.root=document.getElementById("menu");this.play=document.getElementById("playButton");this.save=document.getElementById("saveButton");this.reset=document.getElementById("resetButton")}show(){this.root.classList.remove("hidden")}hide(){this.root.classList.add("hidden")}}
