@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#101d24">
+<title>Blockscape — Minecraft-style voxel world</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#83c8df;user-select:none}
+#game,#game canvas{position:fixed;inset:0;width:100%;height:100%;display:block;outline:0}
+#hud{position:fixed;inset:0;pointer-events:none;color:#fff}
+.brand{position:absolute;top:20px;left:22px;text-shadow:0 2px 3px #234}.brand b{font-size:20px;letter-spacing:.08em}.brand small{display:block;opacity:.8;margin-top:4px}
+.readout{position:absolute;right:20px;top:20px;padding:10px 12px;background:#0d2126aa;border:1px solid #ffffff38;font-size:11px;line-height:1.65;min-width:180px}.readout b{color:#ffd66b}
+#crosshair{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%);filter:drop-shadow(0 1px 2px #000)}#crosshair:before,#crosshair:after{content:"";position:absolute;background:#fff}.crosshair:before{width:2px;height:18px;left:8px}.crosshair:after{height:2px;width:18px;top:8px}
+#message{position:absolute;top:82px;left:50%;transform:translateX(-50%);padding:7px 11px;background:#0d2126aa;opacity:0;transition:.2s;font-size:11px}.show{opacity:1!important}
+#hotbar{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);display:flex;gap:6px;padding:7px;background:#0c1d22bb;border:1px solid #ffffff40}
+.slot{width:54px;height:54px;border:2px solid #ffffff55;background:#182b30;position:relative;display:grid;place-items:center}.slot.active{border-color:#ffd66b;box-shadow:0 0 0 2px #101d24aa}.swatch{width:30px;height:30px;box-shadow:inset 0 4px #ffffff22, inset 0 -5px #0003}.slot span{position:absolute;right:4px;bottom:2px;font-size:9px;color:#fff8}.name{position:absolute;bottom:2px;left:4px;font-size:8px;color:#fff9}
+#help{position:absolute;left:20px;bottom:20px;padding:9px 11px;background:#0d2126a8;font-size:10px;line-height:1.6}
+#start{position:fixed;inset:0;display:grid;place-items:center;background:linear-gradient(#1b3949aa,#08161ccc);z-index:5;pointer-events:auto}
+.panel{width:min(520px,90vw);padding:30px;background:#f6f0df;color:#10212a;border:4px solid #10212a;box-shadow:10px 10px 0 #10212a88;text-align:center}.panel h1{margin:0 0 8px;font-size:30px}.panel p{line-height:1.6;font-size:13px}.panel button{cursor:pointer;background:#3d8b5b;color:white;border:0;padding:13px 22px;font:inherit;font-weight:bold}
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+ <div class="brand"><b>BLOCKSCAPE</b><small>A tiny voxel world</small></div>
+ <div class="readout"><b>WORLD</b><br><span id="coords">X 0 Y 0 Z 0</span><br>BLOCK <span id="selected">GRASS</span><br>FPS <span id="fps">60</span></div>
+ <div id="crosshair" class="crosshair"></div>
+ <div id="message"></div><div id="hotbar"></div>
+ <div id="help">WASD move · SPACE jump · SHIFT sprint<br>LEFT break · RIGHT place · 1–7 select · R reset world</div>
+</div>
+<div id="start"><div class="panel"><h1>BLOCKSCAPE</h1><p>A browser voxel sandbox inspired by classic block-building games.</p><p><b>WASD</b> move · <b>mouse</b> look · <b>click</b> to interact</p><button id="play">ENTER WORLD</button></div></div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import {PointerLockControls} from "three/addons/controls/PointerLockControls.js";
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x83c8df);
+scene.fog=new THREE.Fog(0x83c8df,35,95);
+const camera=new THREE.PerspectiveCamera(72,innerWidth/innerHeight,.05,140);
+camera.position.set(0,8,10);
+const renderer=new THREE.WebGLRenderer({antialias:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;
+document.querySelector("#game").appendChild(renderer.domElement);
+const controls=new PointerLockControls(camera,document.body);
+
+scene.add(new THREE.HemisphereLight(0xbdeaff,0x49633d,1.9));
+const sun=new THREE.DirectionalLight(0xfff2cc,2.2);sun.position.set(-30,55,20);sun.castShadow=true;scene.add(sun);
+
+const mats={
+ grass:new THREE.MeshLambertMaterial({color:0x55a447}), dirt:new THREE.MeshLambertMaterial({color:0x8a5a3b}),
+ stone:new THREE.MeshLambertMaterial({color:0x777b78}), wood:new THREE.MeshLambertMaterial({color:0x8b5b35}),
+ leaves:new THREE.MeshLambertMaterial({color:0x34783f}), sand:new THREE.MeshLambertMaterial({color:0xd8c27c}),
+ glass:new THREE.MeshLambertMaterial({color:0x9edce5,transparent:true,opacity:.42})
+};
+const types=["grass","dirt","stone","wood","leaves","sand","glass"];
+const labels=["GRASS","DIRT","STONE","WOOD","LEAVES","SAND","GLASS"];
+let selected=0;
+const geo=new THREE.BoxGeometry(1,1,1);
+const blocks=new Map(), meshes=new Map();
+const key=(x,y,z)=>x+","+y+","+z;
+function addBlock(x,y,z,type,save=true){
+ if(blocks.has(key(x,y,z)))return;
+ blocks.set(key(x,y,z),type);
+ const m=new THREE.Mesh(geo,mats[type]);m.position.set(x+.5,y+.5,z+.5);m.castShadow=true;m.receiveShadow=true;
+ m.userData={x,y,z,type};scene.add(m);meshes.set(key(x,y,z),m);
+ if(save) dirty=true;
+}
+function removeBlock(x,y,z){
+ const k=key(x,y,z),m=meshes.get(k);if(!m)return;
+ scene.remove(m);meshes.delete(k);blocks.delete(k);dirty=true;
+}
+function height(x,z){return Math.max(1,Math.floor(4+2*Math.sin(x*.23)+1.5*Math.cos(z*.19)+1.2*Math.sin((x+z)*.12)));}
+function tree(x,y,z){
+ for(let i=0;i<4;i++)addBlock(x,y+i,z,"wood");
+ for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)for(let dy=2;dy<=4;dy++){
+   if(Math.abs(dx)+Math.abs(dz)+(dy===4?1:0)<4)addBlock(x+dx,y+dy,z+dz,"leaves");
+ }
+}
+function generate(){
+ for(const m of meshes.values())scene.remove(m);blocks.clear();meshes.clear();
+ const R=25;
+ for(let x=-R;x<R;x++)for(let z=-R;z<R;z++){
+   const h=height(x,z);
+   for(let y=0;y<=h;y++)addBlock(x,y,z,y===h?"grass":y>h-3?"dirt":"stone",false);
+   if((Math.abs(x*13+z*7)%97)===0 && h>3)tree(x,h+1,z);
+ }
+ for(let x=-R;x<R;x++)for(let z=-R;z<R;z++){const h=height(x,z);if(h<=4 && (x*x+z*z)>150) addBlock(x,h,z,"sand",false)}
+ camera.position.set(0,height(0,10)+3,10);dirty=false;save();
+ flash("World generated");
+}
+function save(){localStorage.setItem("blockscape-world",JSON.stringify([...blocks]));}
+function load(){
+ const raw=localStorage.getItem("blockscape-world");if(!raw){generate();return}
+ for(const [k,t] of JSON.parse(raw)){const [x,y,z]=k.split(",").map(Number);addBlock(x,y,z,t,false)}
+ dirty=false;
+}
+load();
+
+const ray=new THREE.Raycaster();const center=new THREE.Vector2(0,0);
+let target=null;
+function pick(){ray.setFromCamera(center,camera);const hits=ray.intersectObjects([...meshes.values()],false);target=hits[0]||null;return target}
+function interact(place){
+ const hit=pick();if(!hit)return;
+ const b=hit.object.userData;
+ if(place){
+   const p=b;const n=hit.face.normal.clone();
+   const x=p.x+Math.round(n.x),y=p.y+Math.round(n.y),z=p.z+Math.round(n.z);
+   if(y<0||y>45||Math.abs(x)>32||Math.abs(z)>32)return;
+   const box=new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(x+.5,y+.5,z+.5),new THREE.Vector3(1,1,1));
+   const playerBox=new THREE.Box3().setFromCenterAndSize(camera.position,new THREE.Vector3(.6,1.8,.6));
+   if(box.intersectsBox(playerBox))return;
+   addBlock(x,y,z,types[selected]);
+ }else if(b.y>0)removeBlock(b.x,b.y,b.z);
+}
+document.addEventListener("mousedown",e=>{if(!controls.isLocked)return;if(e.button===0)interact(false);if(e.button===2)interact(true)});
+document.addEventListener("contextmenu",e=>e.preventDefault());
+
+const keys={};let velY=0,onGround=false;
+document.addEventListener("keydown",e=>{keys[e.code]=true;if(/^Digit[1-7]$/.test(e.code)){selected=+e.code.slice(5)-1;updateBar()}if(e.code==="KeyR"){localStorage.removeItem("blockscape-world");generate()}});
+document.addEventListener("keyup",e=>keys[e.code]=false);
+function updatePlayer(dt){
+ const speed=keys.ShiftLeft?9:5.2;const dir=new THREE.Vector3();
+ if(keys.KeyW)dir.z-=1;if(keys.KeyS)dir.z+=1;if(keys.KeyA)dir.x-=1;if(keys.KeyD)dir.x+=1;
+ if(dir.lengthSq())dir.normalize().applyQuaternion(new THREE.Quaternion().setFromEuler(new THREE.Euler(0,camera.rotation.y,0)));
+ camera.position.x+=dir.x*speed*dt;camera.position.z+=dir.z*speed*dt;
+ const ground=height(Math.floor(camera.position.x),Math.floor(camera.position.z))+1.8;
+ if(keys.Space&&onGround){velY=7;onGround=false}velY-=18*dt;camera.position.y+=velY*dt;
+ if(camera.position.y<=ground){camera.position.y=ground;velY=0;onGround=true}
+ camera.position.x=Math.max(-30,Math.min(30,camera.position.x));camera.position.z=Math.max(-30,Math.min(30,camera.position.z));
+ document.querySelector("#coords").textContent="X "+Math.floor(camera.position.x)+" Y "+Math.floor(camera.position.y)+" Z "+Math.floor(camera.position.z);
+}
+function updateBar(){document.querySelectorAll(".slot").forEach((s,i)=>s.classList.toggle("active",i===selected));document.querySelector("#selected").textContent=labels[selected]}
+function flash(t){const e=document.querySelector("#message");e.textContent=t;e.classList.add("show");clearTimeout(flash.t);flash.t=setTimeout(()=>e.classList.remove("show"),1200)}
+const bar=document.querySelector("#hotbar");types.forEach((t,i)=>{const s=document.createElement("div");s.className="slot";s.innerHTML='<div class="swatch"></div><span>'+(i+1)+'</span><div class="name">'+labels[i]+'</div>';s.querySelector(".swatch").style.background=getComputedStyle(document.documentElement).getPropertyValue("--x")||({grass:"#55a447",dirt:"#8a5a3b",stone:"#777b78",wood:"#8b5b35",leaves:"#34783f",sand:"#d8c27c",glass:"#9edce5"}[t]);s.onclick=()=>{selected=i;updateBar()};bar.appendChild(s)});updateBar();
+
+document.querySelector("#play").onclick=()=>controls.lock();
+controls.addEventListener("lock",()=>document.querySelector("#start").style.display="none");
+controls.addEventListener("unlock",()=>document.querySelector("#start").style.display="grid");
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+let last=performance.now(),frames=0,fpst=last;
+function animate(now){requestAnimationFrame(animate);const dt=Math.min(.05,(now-last)/1000);last=now;if(controls.isLocked)updatePlayer(dt);if(dirty&&Math.random()<.02)save();frames++;if(now-fpst>1000){document.querySelector("#fps").textContent=frames;frames=0;fpst=now}renderer.render(scene,camera)}
+animate(last);
+addEventListener("beforeunload",save);
+</script>
+</body>
+</html>
